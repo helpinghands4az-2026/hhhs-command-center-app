@@ -123,10 +123,11 @@ function parseEvents(icsText) {
 
 function sanitizeTitle(title) {
   return title
-    // [a-zA-Z]* (not the earlier [a-zA-Z]?) -- a single "?" only ate one trailing letter,
-    // leaving fragments like "al" dangling from "$860bal" behind. Found 2026-08-23 in a
-    // real synced title.
-    .replace(/\$[\d,]+[a-zA-Z]*(?:\/\$[\d,]+[a-zA-Z]*)*/g, "")
+    // [a-zA-Z]* (not [a-zA-Z]?) so a whole trailing word like "bal" is consumed, not just
+    // one letter. (?:\.\d+)? so cents (e.g. "$860.50bal") don't leave a ".50bal" fragment
+    // behind -- both found 2026-08-23 in real synced titles. Later segments' "$" is
+    // optional since a title can drop it after the first (e.g. "$1015T/155d/860bal").
+    .replace(/\$[\d,]+(?:\.\d+)?[a-zA-Z]*(?:\/\$?[\d,]+(?:\.\d+)?[a-zA-Z]*)*/g, "")
     .replace(/#\d[\d-]{6,}\d/g, "")
     .replace(/\s{2,}/g, " ")
     .replace(/[\s-]+$/g, "")
