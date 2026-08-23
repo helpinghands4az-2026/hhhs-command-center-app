@@ -147,8 +147,21 @@ function categorizePrimary(ev) {
   return null;
 }
 
+// Google's ICS export has no date-range parameter -- it returns the WHOLE calendar
+// history (found 2026-08-23: events going back to 2019 came through). Schedule only cares
+// about "can I book here," so bound the window: 1 day back (catches a job still in
+// progress) through 90 days out.
+const WINDOW_START_MS = Date.now() - 1 * 24 * 60 * 60 * 1000;
+const WINDOW_END_MS = Date.now() + 90 * 24 * 60 * 60 * 1000;
+
+function inWindow(isoString) {
+  const t = new Date(isoString).getTime();
+  return t >= WINDOW_START_MS && t <= WINDOW_END_MS;
+}
+
 function toItem(ev, itemType, calendarSource) {
   if (!ev.dtstart) return null;
+  if (!inWindow(ev.dtstart.iso)) return null;
   const title = sanitizeTitle(ev.summary || "");
   if (!title) return null;
   return {
