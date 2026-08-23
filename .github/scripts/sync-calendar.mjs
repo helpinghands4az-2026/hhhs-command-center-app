@@ -2,26 +2,38 @@ const JOBS_ONLY_ICS_URL = process.env.JOBS_ONLY_ICS_URL;
 const PRIMARY_ICS_URL = process.env.PRIMARY_ICS_URL;
 const GIST_WRITE_TOKEN = process.env.GIST_WRITE_TOKEN;
 const GIST_FILENAME = "hhhs-live-schedule.json";
-const GIST_DESCRIPTION = "HHHS Command Center — live calendar pull (do not delete)";
+const GIST_DESCRIPTION =
+  "HHHS Command Center - live calendar pull (do not delete)";
 
 if (!JOBS_ONLY_ICS_URL || !PRIMARY_ICS_URL || !GIST_WRITE_TOKEN) {
-  console.error("Missing one of JOBS_ONLY_ICS_URL / PRIMARY_ICets.");
+  console.error(
+    "Missing one of JOBS_ONLY_ICS_URL / PRIMARY_ICS_URL / " +
+    "GIST_WRITE_TOKEN secrets."
+  );
   process.exit(1);
 }
 
 function unfold(text) {
-  return text.replace(/\r\n/g, "\n").split("\n").reduce((lines, line) => {
-    if ((line.startsWith(" ") || line.startsWith("\t")) && lin
+  const raw = text.replace(/\r\n/g, "\n");
+  const rawLines = raw.split("\n");
+  const lines = [];
+  for (const line of rawLines) {
+    const isCont = line.startsWith(" ") || line.startsWith("\t");
+    if (isCont && lines.length) {
       lines[lines.length - 1] += line.slice(1);
     } else {
       lines.push(line);
     }
-    return lines;
-  }, []);
+  }
+  return lines;
 }
 
 function unescapeText(value) {
-  return value.replace(/\\n/gi, "\n").replace(/\\,/g, ",").rep\\/g, "\\");
+  return value
+    .replace(/\\n/gi, "\n")
+    .replace(/\\,/g, ",")
+    .replace(/\\;/g, ";")
+    .replace(/\\\\/g, "\\");
 }
 
 function parseLine(line) {
@@ -29,25 +41,45 @@ function parseLine(line) {
   if (colon === -1) return null;
   const left = line.slice(0, colon);
   const value = line.slice(colon + 1);
-  const [key, ...paramParts] = left.split(";");
+  const parts = left.split(";");
+  const key = parts[0];
+  const paramParts = parts.slice(1);
   const params = {};
   for (const p of paramParts) {
     const eq = p.indexOf("=");
-    if (eq !== -1) params[p.slice(0, eq).toUpperCase()] = p.sl
+    if (eq !== -1) {
+      const pKey = p.slice(0, eq).toUpperCase();
+      params[pKey] = p.slice(eq + 1);
+    }
   }
-  return { key: key.toUpperCase(), params, value };
+  return { key: key.toUpperCase(), params: params, value: value };
 }
 
 function parseIcsDate(value, params) {
   if (params.VALUE === "DATE" || /^\d{8}$/.test(value)) {
-    const y = value.slice(0, 4), m = value.slice(4, 6), d = value.slice(6, 8);
-    return { iso: `${y}-${m}-${d}T00:00:00-07:00`, allDay: tru
+    const y = value.slice(0, 4);
+    const mo = value.slice(4, 6);
+    const d = value.slice(6, 8);
+    const iso = y + "-" + mo + "-" + d + "T00:00:00-07:00";
+    return { iso: iso, allDay: true };
   }
-  const m = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})
+  const re = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/;
+  const m = value.match(re);
   if (!m) return null;
-  const [, y, mo, d, h, mi, s, z] = m;
-  const iso = z ? `${y}-${mo}-${d}T${h}:${mi}:${s}Z` : `${y}-${mo}-${d}T${h}:${mi}:${s}-07:00`;
-  return { iso, allDay: false };
+  const y = m[1];
+  const mo = m[2];
+  const d = m[3];
+  const h = m[4];
+  const mi = m[5];
+  const s = m[6];
+  const z = m[7];
+  let iso;
+  if (z) {
+    iso = y + "-" + mo + "-" + d + "T" + h + ":" + mi + ":" + s + "Z";
+  } else {
+    iso = y + "-" + mo + "-" + d + "T" + h + ":" + mi + ":" + s + "-07:00";
+  }
+  return { iso: iso, allDay: false };
 }
 
 function parseEvents(icsText) {
@@ -55,19 +87,36 @@ function parseEvents(icsText) {
   const events = [];
   let current = null;
   for (const raw of lines) {
-    if (raw === "BEGIN:VEVENT") { current = {}; continue; }
-    if (raw === "END:VEVENT") { if (current) events.push(current); current = null; continue; }
+    if (raw === "BEGIN:VEVENT") {
+      current = {};
+      continue;
+    }
+    if (raw === "END:VEVENT") {
+      if (current) events.push(current);
+      current = null;
+      continue;
+    }
     if (!current) continue;
     const parsed = parseLine(raw);
     if (!parsed) continue;
-    const { key, params, value } = parsed;
-    if (key === "SUMMARY") current.summary = unescapeText(valu
-    else if (key === "DESCRIPTION") current.description = unescapeText(value);
-    else if (key === "LOCATION") current.location = unescapeTe
-    else if (key === "UID") current.uid = value;
-    else if (key === "STATUS") current.status = value;
-    else if (key === "DTSTART") current.dtstart = parseIcsDate(value, params);
-    else if (key === "DTEND") current.dtend = parseIcsDate(val
+    const key = parsed.key;
+    const params = parsed.params;
+    const value = parsed.value;
+    if (key === "SUMMARY") {
+      current.summary = unescapeText(value);
+    } else if (key === "DESCRIPTION") {
+      current.description = unescapeText(value);
+    } else if (key === "LOCATION") {
+      current.location = unescapeText(value);
+    } else if (key === "UID") {
+      current.uid = value;
+    } else if (key === "STATUS") {
+      current.status = value;
+    } else if (key === "DTSTART") {
+      current.dtstart = parseIcsDate(value, params);
+    } else if (key === "DTEND") {
+      current.dtend = parseIcsDate(value, params);
+    }
   }
   return events;
 }
@@ -104,9 +153,9 @@ function toItem(ev, itemType, calendarSource) {
   if (!title) return null;
   return {
     externalId: ev.uid || null,
-    calendarSource,
-    itemType,
-    title,
+    calendarSource: calendarSource,
+    itemType: itemType,
+    title: title,
     startAt: ev.dtstart.iso,
     endAt: ev.dtend ? ev.dtend.iso : null,
     allDay: ev.dtstart.allDay,
@@ -116,67 +165,114 @@ function toItem(ev, itemType, calendarSource) {
 
 async function fetchIcs(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch ICS feed: ${res.status}`);
+  if (!res.ok) {
+    throw new Error("Failed to fetch ICS feed: " + res.status);
+  }
   return await res.text();
 }
 
 async function main() {
-  const [jobsOnlyText, primaryText] = await Promise.all([fetchIcs(PRIMARY_ICS_URL)]);
+  const jobsOnlyText = await fetchIcs(JOBS_ONLY_ICS_URL);
+  const primaryText = await fetchIcs(PRIMARY_ICS_URL);
 
-  const jobsOnlyItems = parseEvents(jobsOnlyText)
-    .map((ev) => { const type = categorizeJobsOnly(ev); return type ? toItem(ev, type, "jobs_only") : null; })
-    .filter(Boolean);
+  const jobsOnlyEvents = parseEvents(jobsOnlyText);
+  const jobsOnlyItems = [];
+  for (const ev of jobsOnlyEvents) {
+    const type = categorizeJobsOnly(ev);
+    if (type) {
+      const item = toItem(ev, type, "jobs_only");
+      if (item) jobsOnlyItems.push(item);
+    }
+  }
 
-  const primaryItems = parseEvents(primaryText)
-    .map((ev) => { const type = categorizePrimary(ev); return type ? toItem(ev, type, "primary") : null; })
-    .filter(Boolean);
+  const primaryEvents = parseEvents(primaryText);
+  const primaryItems = [];
+  for (const ev of primaryEvents) {
+    const type = categorizePrimary(ev);
+    if (type) {
+      const item = toItem(ev, type, "primary");
+      if (item) primaryItems.push(item);
+    }
+  }
 
-  const items = [...jobsOnlyItems, ...primaryItems].sort((a, bw Date(b.startAt));
+  const items = jobsOnlyItems.concat(primaryItems);
+  items.sort(function (a, b) {
+    return new Date(a.startAt) - new Date(b.startAt);
+  });
 
-  const payload = { generatedAt: new Date().toISOString(), ite
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    items: items,
+  };
 
-  console.log(`Parsed ${items.length} items (${jobsOnlyItems.laryItems.length} from Primary).`);
+  const jobsCount = jobsOnlyItems.length;
+  const primCount = primaryItems.length;
+  console.log(
+    "Parsed " + items.length + " items (" + jobsCount +
+    " from Jobs Only, " + primCount + " from Primary)."
+  );
 
   await writeToGist(JSON.stringify(payload, null, 2));
 }
 
 async function ghFetch(path, init) {
-  return fetch(`https://api.github.com${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${GIST_WRITE_TOKEN}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...(init && init.headers),
-    },
-  });
+  const url = "https://api.github.com" + path;
+  const baseHeaders = {
+    Authorization: "Bearer " + GIST_WRITE_TOKEN,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  const extraHeaders = (init && init.headers) || {};
+  const headers = Object.assign({}, baseHeaders, extraHeaders);
+  const finalInit = Object.assign({}, init, { headers: headers });
+  return fetch(url, finalInit);
 }
 
 async function writeToGist(content) {
   const listRes = await ghFetch("/gists?per_page=100");
-  if (!listRes.ok) throw new Error(`Failed to list gists: ${listRes.status}`);
+  if (!listRes.ok) {
+    throw new Error("Failed to list gists: " + listRes.status);
+  }
   const gists = await listRes.json();
-  const existing = gists.find((g) => Object.prototype.hasOwnProperty.call(g.files, GIST_FILENAME));
+  let existing = null;
+  for (const g of gists) {
+    if (Object.prototype.hasOwnProperty.call(g.files, GIST_FILENAME)) {
+      existing = g;
+      break;
+    }
+  }
 
   if (existing) {
-    const res = await ghFetch(`/gists/${existing.id}`, {
+    const body = JSON.stringify({
+      files: { [GIST_FILENAME]: { content: content } },
+    });
+    const res = await ghFetch("/gists/" + existing.id, {
       method: "PATCH",
-      body: JSON.stringify({ files: { [GIST_FILENAME]: { conte
+      body: body,
     });
-    if (!res.ok) throw new Error(`Failed to update gist: ${res
-    console.log(`Updated existing gist: ${existing.id}`);
+    if (!res.ok) {
+      throw new Error("Failed to update gist: " + res.status);
+    }
+    console.log("Updated existing gist: " + existing.id);
   } else {
-    const res = await ghFetch("/gists", {
-      method: "POST",
-      body: JSON.stringify({ description: GIST_DESCRIPTION, public: false, files: { [GIST_FILENAME]: { content } } }),
+    const body = JSON.stringify({
+      description: GIST_DESCRIPTION,
+      public: false,
+      files: { [GIST_FILENAME]: { content: content } },
     });
-    if (!res.ok) throw new Error(`Failed to create gist: ${res.status}`);
+    const res = await ghFetch("/gists", { method: "POST", body: body });
+    if (!res.ok) {
+      throw new Error("Failed to create gist: " + res.status);
+    }
     const created = await res.json();
-    console.log(`Created NEW gist: ${created.id} — hardcode into the app's fetch code and redeploy.`);
+    console.log(
+      "Created NEW gist: " + created.id +
+      " -- hardcode into the app's fetch code and redeploy."
+    );
   }
 }
 
-main().catch((err) => {
+main().catch(function (err) {
   console.error(err);
   process.exit(1);
 });
