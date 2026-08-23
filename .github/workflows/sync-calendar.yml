@@ -1,0 +1,24 @@
+name: Sync calendar to live schedule
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Fetch calendars and update the live-schedule Gist
+        env:
+          JOBS_ONLY_ICS_URL: ${{ secrets.JOBS_ONLY_ICS_URL }}
+          PRIMARY_ICS_URL: ${{ secrets.PRIMARY_ICS_URL }}
+          GIST_WRITE_TOKEN: ${{ secrets.GIST_WRITE_TOKEN }}
+        run: node .github/scripts/sync-calendar.mjs
