@@ -136,7 +136,13 @@ function categorizeJobsOnly(ev) {
   if (ev.status === "CANCELLED") return null;
   if (/frank/i.test(summary)) return "gig";
   if (/hhhs-/i.test(summary)) return "job";
-  return "taskrabbit";
+  // Real TaskRabbit bookings all carry this link in the description -- found 2026-08-23
+  // that NOT everything on this calendar is business (a personal "Jayden party" reminder
+  // was on it too), so defaulting anything unmatched to "taskrabbit" was wrong. Require the
+  // actual signal instead of guessing.
+  const description = ev.description || "";
+  if (/taskrabbit\.tr\.co/i.test(description)) return "taskrabbit";
+  return null;
 }
 
 function categorizePrimary(ev) {
@@ -208,7 +214,20 @@ async function main() {
     }
   }
 
-  const items = jobsOnlyItems.concat(primaryItems);
+  // Some real jobs land on BOTH calendars (confirmed 2026-08-22 -- Glenda Ramirez's job did
+  // this too), which showed up as visible duplicates in the merged feed. Dedupe by
+  // title+startAt (externalId differs per-calendar for the same real event, so it can't be
+  // used for this) -- keep the jobs_only copy when both exist, since that's the calendar
+  // that's supposed to be the canonical job list.
+  const combined = jobsOnlyItems.concat(primaryItems);
+  const seen = new Set();
+  const items = [];
+  for (const it of combined) {
+    const key = it.title + "|" + it.startAt;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(it);
+  }
   items.sort(function (a, b) {
     return new Date(a.startAt) - new Date(b.startAt);
   });
@@ -220,9 +239,11 @@ async function main() {
 
   const jobsCount = jobsOnlyItems.length;
   const primCount = primaryItems.length;
+  const dupCount = jobsCount + primCount - items.length;
   console.log(
-    "Parsed " + items.length + " items (" + jobsCount +
-    " from Jobs Only, " + primCount + " from Primary)."
+    "Parsed " + items.length + " items after dedup (" + jobsCount +
+    " from Jobs Only, " + primCount + " from Primary, " + dupCount +
+    " duplicate(s) removed)."
   );
 
   await writeToGist(JSON.stringify(payload, null, 2));
