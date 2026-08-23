@@ -123,7 +123,10 @@ function parseEvents(icsText) {
 
 function sanitizeTitle(title) {
   return title
-    .replace(/\$[\d,]+[a-zA-Z]?(?:\/\$[\d,]+[a-zA-Z]?)*/g, "")
+    // [a-zA-Z]* (not the earlier [a-zA-Z]?) -- a single "?" only ate one trailing letter,
+    // leaving fragments like "al" dangling from "$860bal" behind. Found 2026-08-23 in a
+    // real synced title.
+    .replace(/\$[\d,]+[a-zA-Z]*(?:\/\$[\d,]+[a-zA-Z]*)*/g, "")
     .replace(/#\d[\d-]{6,}\d/g, "")
     .replace(/\s{2,}/g, " ")
     .replace(/[\s-]+$/g, "")
